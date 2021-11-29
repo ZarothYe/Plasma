@@ -61,10 +61,6 @@ from . import xKIExtChatCommands
 from .xKIConstants import *
 from .xKIHelpers import *
 
-_URL_REGEX = re.compile(r"https?:\/\/[\S]+", re.IGNORECASE)
-_STARTS_WITH_WORD_REGEX = re.compile(r"^\w")
-_ENDS_WITH_WORD_REGEX = re.compile(r"\w$")
-
 ## A class to process all the RT Chat functions of the KI.
 class xKIChat(object):
 
@@ -103,6 +99,9 @@ class xKIChat(object):
         # Add the commands processor.
         self.commandsProcessor = CommandsProcessor(self)
 
+        # Set a fake player name to avoid errors.
+        self.playerName = None
+
         # Message History
         self.MessageHistoryIs = -1 # Current position in message history (up/down key)
         self.MessageHistoryList = [] # Contains our message history
@@ -140,6 +139,14 @@ class xKIChat(object):
     ############
     # Chatting #
     ############
+
+    # Update the current player name.
+    def _setPlayerName(self, value):
+        value = re.escape(value if value else "Anonymous Coward")
+        regex = rf"(?:^|(?![\/\\])[\s\W])(?P<mention>({value}\s?)+)(?=$|[\s\W])"
+        PtDebugPrint(f"xKIChat: The chat mention regex is now `{regex}`", level=kWarningLevel)
+        self._chatMentionRegex = re.compile(regex, re.IGNORECASE)
+    playerName = property(None, _setPlayerName)
 
     ## Make the player enter or exit chat mode.
     # Chat mode means the player's keyboard input is being sent to the chat.
@@ -404,21 +411,6 @@ class xKIChat(object):
     ## Adds a line to the RT chat.
     def AddChatLine(self, player, message, cFlags, forceKI=True):
 
-        playerName = PtGetClientName()
-        playerNameMentionRegex = None
-
-        # Compose the regex differently depending on if player name starts and ends with a word or with special characters
-        if _STARTS_WITH_WORD_REGEX.search(playerName) is not None:
-            if _ENDS_WITH_WORD_REGEX.search(playerName) is not None:
-                playerNameMentionRegex = re.compile(fr"\b({re.escape(playerName)})\b", re.IGNORECASE)
-            else:
-                playerNameMentionRegex = re.compile(fr"\b({re.escape(playerName)})(?=$|\W)", re.IGNORECASE)
-        else:
-            if _ENDS_WITH_WORD_REGEX.search(playerName) is not None:
-                playerNameMentionRegex = re.compile(fr"(?=^|\W)({re.escape(playerName)})\b", re.IGNORECASE)
-            else:
-                playerNameMentionRegex = re.compile(fr"(?=^|\W)({re.escape(playerName)})(?=$|\W)", re.IGNORECASE)
-
         try:
             PtDebugPrint("xKIChat.AddChatLine(): Message = \"{}\".".format(message), player, cFlags, level=kDebugDumpLevel)
         except UnicodeEncodeError:
@@ -434,8 +426,8 @@ class xKIChat(object):
         pretext = ""
         headerColor = kColors.ChatHeaderBroadcast
         bodyColor = kColors.ChatMessage
-        specialColor = None
-        specialMatchPattern = None
+        mentionColor = kColors.ChatMessageMention
+        censorLevel = self.GetCensorLevel()
 
         # Is it an object to represent the flags?
         if isinstance(cFlags, ChatFlags):
@@ -491,9 +483,7 @@ class xKIChat(object):
                         self.lastPrivatePlayerID = (player.getPlayerName(), player.getPlayerID(), 1)
                         PtFlashWindow()
                     # Are we mentioned in the message?
-                    elif playerNameMentionRegex.search(message) is not None:
-                        specialColor = kColors.ChatMessageMention
-                        specialMatchPattern = playerNameMentionRegex
+                    elif self._chatMentionRegex.search(message) is not None:
                         PtFlashWindow()
 
             # Is it a ccr broadcast?
@@ -535,9 +525,7 @@ class xKIChat(object):
                     self.AddPlayerToRecents(player.getPlayerID())
 
                     # Are we mentioned in the message?
-                    if playerNameMentionRegex.search(message) is not None:
-                        specialColor = kColors.ChatMessageMention
-                        specialMatchPattern = playerNameMentionRegex
+                    if self._chatMentionRegex.search(message) is not None:
                         forceKI = True
                         PtFlashWindow()
 
@@ -593,37 +581,17 @@ class xKIChat(object):
                 chatArea.insertStringW("\n{}".format(chatHeaderFormatted))
                 chatArea.insertColor(bodyColor)
 
-                # We have some special processing to do to change text colors mid-message
-                if specialMatchPattern is not None and specialColor is not None:
-                    lastInsert = 0
-                    urlMatches = list((match.span() for match in _URL_REGEX.finditer(chatMessageFormatted)))
-                    specialMatches = ((match.span(1), match.groups(1)[0]) for match in specialMatchPattern.finditer(chatMessageFormatted))
-
-                    for (start, end), specialMatch in specialMatches:
-                        processMatch = True
-
-                        # If the special match is contained within a URL, don't do text color processing
-                        for (urlStart, urlEnd) in urlMatches:
-                            if urlStart <= start and urlEnd >= end:
-                                processMatch = False
-                                break
-
-                        if processMatch:
-                            if start > lastInsert:
-                                # Insert non-special text up to the current special match position
-                                chatArea.insertStringW(chatMessageFormatted[lastInsert:start], censorLevel = self.GetCensorLevel())
-
-                            lastInsert = end
-                            chatArea.insertColor(specialColor)
-                            chatArea.insertStringW(specialMatch, censorLevel = self.GetCensorLevel())
-                            chatArea.insertColor(bodyColor)
-
-                    # If there is remaining text to display after the last match, write it
-                    if lastInsert != len(chatMessageFormatted):
-                        chatArea.insertStringW(chatMessageFormatted[lastInsert:], censorLevel = self.GetCensorLevel())
-                else:
-                    # Just a plain non-special message
-                    chatArea.insertStringW(chatMessageFormatted, censorLevel = self.GetCensorLevel())
+                chatMentions = ((i.start("mention"), i.end("mention"), i.group("mention")) for i in self._chatMentionRegex.finditer(chatMessageFormatted))
+                lastInsert = 0
+                for start, end, mention in chatMentions:
+                    if start > lastInsert:
+                        chatArea.insertStringW(chatMessageFormatted[lastInsert:start], censorLevel=censorLevel)
+                    lastInsert = end
+                    chatArea.insertColor(mentionColor)
+                    chatArea.insertStringW(mention, censorLevel=censorLevel, urlDetection=False)
+                    chatArea.insertColor(bodyColor)
+                if lastInsert != len(chatMessageFormatted):
+                    chatArea.insertStringW(chatMessageFormatted[lastInsert:], censorLevel=censorLevel)
 
                 chatArea.moveCursor(PtGUIMultiLineDirection.kBufferEnd)
 

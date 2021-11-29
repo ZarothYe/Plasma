@@ -1342,6 +1342,9 @@ class xKI(ptModifier):
             chatArea.moveCursor(PtGUIMultiLineDirection.kBufferStart)
             chatArea.getOwnerDialog().refreshAllControls()
 
+        # Setup the chat mention regex.
+        self.chatMgr.playerName = PtGetClientName()
+
         # Remove unneeded kFontShadowed flags (as long as we can't do that directly in the PRPs)
         for dialogAttr in (BigKI, KIListModeDialog, KIJournalExpanded, KIPictureExpanded, KIPlayerExpanded, KIAgeOwnerExpanded, KISettings, KIMarkerFolderExpanded, KICreateMarkerGameGUI):
             for i in range(dialogAttr.dialog.getNumControls()):
