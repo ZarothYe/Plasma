@@ -924,8 +924,14 @@ class CommandsProcessor:
         # Is it an emote, a "/me" or invalid command?
         if message.startswith("/"):
             words = message.split()
+            # get the command word, trimming the / off the front
+            commandWord = words[0][1:].casefold()
+            if not commandWord or commandWord.isspace():
+                # no command after the /, so short-circuit trying to do or send anything
+                return None
+
             try:
-                emote = xKIExtChatCommands.xChatEmoteXlate[str(words[0][1:].casefold())]
+                emote = xKIExtChatCommands.xChatEmoteXlate[commandWord]
                 if emote[0] in xKIExtChatCommands.xChatEmoteLoop:
                     PtAvatarEnterAnimMode(emote[0])
                 else:
@@ -950,7 +956,7 @@ class CommandsProcessor:
                 return message[1:]
             except LookupError:
                 try:
-                    command = xKIExtChatCommands.xChatExtendedChat[str(words[0][1:].casefold())]
+                    command = xKIExtChatCommands.xChatExtendedChat[commandWord]
                     if isinstance(command, str):
                         # Retrieved command is just a plain string
                         args = message[len(words[0]):]
@@ -1042,10 +1048,18 @@ class CommandsProcessor:
             return int(params)
         except ValueError:
             for player in self.chatMgr.BKPlayerList:
+                # Age Players
                 if isinstance(player, ptPlayer):
                     plyrName = player.getPlayerName().casefold()
                     if params.casefold() == plyrName:
                         return player.getPlayerID()
+                # Buddies or Neighbors
+                elif isinstance(player, ptVaultNodeRef):
+                    plyrInfoNode = player.getChild().upcastToPlayerInfoNode()
+                    if plyrInfoNode is not None:
+                        plyrName = plyrInfoNode.playerGetName().casefold()
+                        if params.casefold() == plyrName:
+                            return plyrInfoNode.playerGetID()
             return 0
 
     #~~~~~~~~~~~~~~~~~~~#
@@ -1277,33 +1291,45 @@ class CommandsProcessor:
     ## Look around for exits and informational text.
     def LookAround(self, params):
 
-        # Find the nearby people.
-        playerList = self.chatMgr.GetPlayersInChatDistance(minPlayers=-1)
-        people = "nobody in particular"
-        if len(playerList) > 0:
-            people = ""
-            for player in playerList:
-                people += player.getPlayerName() + ", "
-            people = people[:-2]
-
         # Load the Age-specific text.
         ageInfo = PtGetAgeInfo()
         if ageInfo is None:
             return
+
         currentAge = ageInfo.getAgeFilename()
         see = ""
         exits = " North and West."
+        people = ""
+        peopleVerb = "is"
         if currentAge in kEasterEggs:
             see = kEasterEggs[currentAge]["see"]
+
             if not kEasterEggs[currentAge]["exits"]:
                 exits = "... well, there are no exits."
             else:
-                exits = " " + kEasterEggs[currentAge]["exits"]
+                exits = kEasterEggs[currentAge]["exits"]
+
             if "people" in kEasterEggs[currentAge]:
                 people = kEasterEggs[currentAge]["people"]
 
+        # Find the nearby people if kEasterEggs didn't define people text override for the Age.
+        if not people:
+            playerList = self.chatMgr.GetPlayersInChatDistance(minPlayers=-1)
+            playerListLen = len(playerList)
+            peopleVerb = "are" if playerListLen > 1 else "is"
+
+            if playerListLen == 0:
+                people = " nobody in particular."
+            else:
+                # concatenate player names together with commas (using "and" before the last name)
+                people = ", ".join((
+                    f"{' ' if idx == 0 else ''}{'and ' if playerListLen > 1 and playerListLen == idx + 1 else ''}"
+                    f"{player.getPlayerName()}{'.' if playerListLen == idx + 1 else ''}"
+                    for idx, player in enumerate(playerList)
+                ))
+
         ## Display the info.
-        self.chatMgr.AddChatLine(None, "{}: {} Standing near you is {}. There are exits to the{}".format(GetAgeName(), see, people, exits), 0)
+        self.chatMgr.AddChatLine(None, f"{GetAgeName()}: {see} Standing near you {peopleVerb}{people} There are exits to the{exits}", 0)
 
     ## Get a feather in the current Age.
     def GetFeather(self, params):
