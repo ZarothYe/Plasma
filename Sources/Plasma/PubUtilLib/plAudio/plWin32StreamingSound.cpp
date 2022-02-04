@@ -178,25 +178,18 @@ plSoundBuffer::ELoadReturnVal plWin32StreamingSound::IPreLoadBuffer( bool playWh
             plFileName strPath = plFileSystem::GetCWD();
 
             if (sfxPath)
-            {
                 strPath = plFileName::Join(strPath, "sfx");
-            }
             strPath = plFileName::Join(strPath, fSrcFilename);
             fDataStream = plAudioFileReader::CreateReader(strPath, select, type);
         }
 
         // check if subtitles are enabled and if fSrcFilename is a localized audio file (e.g., ending in _eng, _fre, etc.)
         // TODO: surely there is already a function somewhere to do this localization filename check?
-        if (plgAudioSys::IsEnabledSubtitles() && std::regex_match(fSrcFilename.StripFileExt().AsString().c_str(), std::regex(".*_(eng|fre|ger|spa|ita|jpn)$", std::regex_constants::icase)))
-        {
-            if (fSrtFileReader != nullptr && fSrtFileReader->GetCurrentAudioFileName().AsString().compare(fSrcFilename.AsString()) == 0)
-            {
-                // same file as we were playing before
-                // so make the SRT feed start over instead of deleting and reloading
+        if (plgAudioSys::IsEnabledSubtitles() && std::regex_match(fSrcFilename.StripFileExt().AsString().c_str(), std::regex(".*_(eng|fre|ger|spa|ita|jpn)$", std::regex_constants::icase))) {
+            if (fSrtFileReader != nullptr && fSrtFileReader->GetCurrentAudioFileName().AsString().compare(fSrcFilename.AsString()) == 0) {
+                // same file we were playing before, so start the SRT feed over instead of deleting and reloading
                 fSrtFileReader->StartOver();
-            }
-            else
-            {
+            } else {
                 delete fSrtFileReader;
                 fSrtFileReader = new plSrtFileReader(fSrcFilename);
                 fSrtFileReader->ReadFile();
@@ -453,8 +446,7 @@ void plWin32StreamingSound::IDerivedActuallyPlay()
                 // TODO: when would this actually happen? Need to find test case
                 if (fSrtFileReader != nullptr) {
                     plSrtEntry* nextEntry = nullptr;
-                    do
-                    {
+                    do {
                         nextEntry = fSrtFileReader->GetNextEntryEndingBeforeTime(fSynchedStartTimeSec * 1000.0);
                     } while (nextEntry != nullptr);
                 }
@@ -491,22 +483,21 @@ void plWin32StreamingSound::IActuallyStop()
 
 unsigned plWin32StreamingSound::GetByteOffset()
 {
-    if(fDataStream && fDSoundBuffer)
+    if (fDataStream && fDSoundBuffer)
     {
-        uint32_t totalSize = fDataStream->GetDataSize();
         unsigned bytesQueued = fDSoundBuffer->BuffersQueued() * STREAM_BUFFER_SIZE;
         unsigned offset = fDSoundBuffer->GetByteOffset();
-        long byteoffset = ((totalSize - fDataStream->NumBytesLeft()) - bytesQueued) + offset;
-        
-        return byteoffset < 0 ? totalSize - std::abs(byteoffset) : byteoffset;
+        long byteoffset = ((fDataStream->GetDataSize() - fDataStream->NumBytesLeft()) - bytesQueued) + offset;
+
+        return byteoffset < 0 ? fDataStream->GetDataSize() - std::abs(byteoffset) : byteoffset;
     }
     return 0;
 }
 
 float plWin32StreamingSound::GetActualTimeSec()
 {
-    if(fDataStream && fDSoundBuffer)
-        return fDSoundBuffer->bytePosToMSecs(this->GetByteOffset()) / 1000.0f;
+    if (fDataStream && fDSoundBuffer)
+        return fDSoundBuffer->bytePosToMSecs(fDataStream->NumBytesLeft()) / 1000.0f;
     return 0.0f;
 }
 
