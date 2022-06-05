@@ -331,8 +331,6 @@ class nxusBookMachine(ptModifier):
 
         self.publicHoodSort = kSortNone #current hood list sorting method
 
-        self.deleteCandidateId = None #id for hood to delete
-
         self.controlIdToAgeEntry = dict() #list of LinkListEntry entries assigned to control
 
         self.idCategorySelected = kIDBtnLinkCategory01
@@ -686,21 +684,6 @@ class nxusBookMachine(ptModifier):
                 if self.IGetHoodInfoNode().getID() == tupdata[0].getID():
                     self.IUpdateHoodLink()
 
-    def IOnYesNoNotify(self, state, events):
-        if self.deleteCandidateId is None: # user wants to create a new hood
-            if state: # user answered yes
-                self.IHideDisableButton(kIDBtnNeighborhoodCreate)
-                link = self.IGetHoodLinkNode()
-                if link:
-                    link.setVolatile(1) # mark it volatile, but DON'T SAVE (we don't want the server to know, just the client)
-                ptVault().createNeighborhood()
-                #no need to update, it will happen on vault notify
-
-        else: # user wants to delete a link
-            if state:
-                self.IDeleteLink()
-                #links will be updated on vault notify
-
     def IOnActKISlot(self, state, events): #click on KI Slot
         kiLevel = PtDetermineKILevel()
         PtDebugPrint("nxusBookMachine.OnNotify:\tplayer ki level is %d" % kiLevel)
@@ -825,7 +808,6 @@ class nxusBookMachine(ptModifier):
 
         if not hasattr(self, 'onNotifyActions'):
             self.onNotifyActions = {
-                - 1: self.IOnYesNoNotify, # callback from delete yes/no dialog (hopefully)
                 ##################
                 # Engage Machine Interface  #
                 ##################
@@ -871,7 +853,7 @@ class nxusBookMachine(ptModifier):
     # Handle GUI Clicks    #
     ##############
 
-    def OnGUINotify(self, id, control, event):
+    async def OnGUINotify(self, id, control, event):
         "Events from the Nexus GUI.."
 
         if id != NexusGUI.id:
@@ -943,8 +925,15 @@ class nxusBookMachine(ptModifier):
             #############
 
             elif ctrlID == kIDBtnNeighborhoodCreate:
-                self.deleteCandidateId = None
-                PtYesNoDialog(self.key, PtGetLocalizedString("Nexus.Messages.HoodCreate"))
+                answer = await PtLocalizedYesNoDialog(None, "Nexus.Messages.HoodCreate")
+                if answer == PtConfirmationResult.Yes:
+                    self.IHideDisableButton(kIDBtnNeighborhoodCreate)
+                    link = self.IGetHoodLinkNode()
+                    if link:
+                        # mark it volatile, but DON'T SAVE (we don't want the server to know, just the client)
+                        link.setVolatile(True)
+                    # no need to update, it will happen on vault notify
+                    ptVault().createNeighborhood()
 
             elif ctrlID == kIDBtnNeighborhoodPublic:
                 if self.IIsMyHoodPublic():
@@ -958,10 +947,11 @@ class nxusBookMachine(ptModifier):
             ##################
 
             elif ctrlID >= kIDBtnDeleteLinkFirst and ctrlID <= kIDBtnDeleteLinkLast:
-                self.deleteCandidateId = ctrlID - 100
-                entry = self.controlIdToAgeEntry[self.deleteCandidateId]
-                stringConfirm = PtGetLocalizedString("Nexus.Messages.LinkDelete", [entry.displayName])
-                PtYesNoDialog(self.key, stringConfirm)
+                deleteCandidateId = ctrlID - 100
+                entry = self.controlIdToAgeEntry[deleteCandidateId]
+                answer = await PtLocalizedYesNoDialog(None, "Nexus.Messages.LinkDelete", entry.displayName)
+                if answer == PtConfirmationResult.Yes:
+                    self.IDeleteLink(deleteCandidateId)
 
             #############
             #   Header sort buttons #
@@ -1191,14 +1181,10 @@ class nxusBookMachine(ptModifier):
             coords = (0, 0, 0)
         return "%05d%   04d%   04d" % coords
 
-    def IDeleteLink(self):
-        if self.deleteCandidateId is None:
-            PtDebugPrint("nxusBookMachine.IDeleteLink(): Tried to delete nothing. Should not happen")
-            return
-
+    def IDeleteLink(self, candidateId):
         vault = ptVault()
         cityLink = vault.getLinkToCity()
-        linkInfo = self.controlIdToAgeEntry[self.deleteCandidateId].als
+        linkInfo = self.controlIdToAgeEntry[candidateId].als
         ageInfo = linkInfo.getAgeInfo()
         #currently, we can only delete two types of entries:
         #city entry points and age invites 
@@ -1209,7 +1195,7 @@ class nxusBookMachine(ptModifier):
             cityLink.save()
 
             #we deleted selected link
-            if self.deleteCandidateId == self.idLinkSelected:
+            if candidateId == self.idLinkSelected:
                 self.ICancelLinkChoice()
                 self.IUpdateLinks(kCategoryCity)
 

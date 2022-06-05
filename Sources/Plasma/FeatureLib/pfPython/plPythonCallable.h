@@ -44,6 +44,7 @@ You can contact Cyan Worlds, Inc. by email legal@cyan.com
 #define _pyPythonCallable_h_
 
 #include <functional>
+#include <memory>
 #include <type_traits>
 #include <variant>
 
@@ -53,120 +54,141 @@ You can contact Cyan Worlds, Inc. by email legal@cyan.com
 #include "HeadSpin.h"
 #include "plProfile.h"
 
+#include "pyAsyncTask.h"
 #include "cyPythonInterface.h"
+#include "plPythonConvert.h"
 #include "pyGlueHelpers.h"
+#include "pyKey.h"
 #include "pyObjectRef.h"
 
 plProfile_Extern(PythonUpdate);
 
-namespace plPythonCallable
+namespace plPython
 {
-    template<typename ArgT>
-    inline void IBuildTupleArg(PyObject* tuple, size_t idx, ArgT value) = delete;
-
-    inline void IBuildTupleArg(PyObject* tuple, size_t idx, bool value)
+    namespace _detail
     {
-        PyTuple_SET_ITEM(tuple, idx, PyBool_FromLong(value ? 1 : 0));
+        template <size_t _NArgsfT, typename... Args>
+        inline pyObjectRef VectorcallObject(PyObject* callable, PyObject* argsObjs[], Args&&... args)
+        {
+            // Python's vectorcall protocol has an optimization whereby it can reuse the memory allocated
+            // for the arguments array if you let it (ab)-use the first slot.
+            {
+                argsObjs[0] = nullptr;
+                size_t i = 1; // Don't touch the first slot...
+                ((argsObjs[i++] = ConvertFrom(std::forward<Args>(args))), ...);
+            }
+
+            // Now, we perform the Python call with the resulting C++ compile-time magic.
+            plProfile_BeginTiming(PythonUpdate);
+            pyObjectRef result = _PyObject_Vectorcall(
+                callable,
+                &argsObjs[1], // This is the optimization mentioned earlier.
+                (_NArgsfT - 1) | PY_VECTORCALL_ARGUMENTS_OFFSET, // Indicates we are passing args[1] instead of args[0]
+                nullptr
+            );
+            plProfile_EndTiming(PythonUpdate);
+
+            for (size_t i = 1; i < _NArgsfT; ++i)
+                Py_XDECREF(argsObjs[i]);
+            return result;
+        }
+    };
+
+    template<typename... Args>
+    inline pyObjectRef CallObject(const pyObjectRef& callable, Args&&... args)
+    {
+        return CallObject(callable.Get(), std::forward<Args>(args)...);
     }
 
-    inline void IBuildTupleArg(PyObject* tuple, size_t idx, char value)
+    template<typename... Args>
+    inline pyObjectRef CallObject(PyObject* callable, Args&&... args)
     {
-        PyTuple_SET_ITEM(tuple, idx, PyUnicode_FromFormat("%c", (int)value));
-    }
+        hsAssert(PyCallable_Check(callable), "Trying to call a non-callable, eh?");
 
-    inline void IBuildTupleArg(PyObject* tuple, size_t idx, const char* value)
-    {
-        PyTuple_SET_ITEM(tuple, idx, PyUnicode_FromString(value));
-    }
-
-    inline void IBuildTupleArg(PyObject* tuple, size_t idx, double value)
-    {
-        PyTuple_SET_ITEM(tuple, idx, PyFloat_FromDouble(value));
-    }
-
-    inline void IBuildTupleArg(PyObject* tuple, size_t idx, float value)
-    {
-        PyTuple_SET_ITEM(tuple, idx, PyFloat_FromDouble(value));
-    }
-
-    inline void IBuildTupleArg(PyObject* tuple, size_t idx, int8_t value)
-    {
-        PyTuple_SET_ITEM(tuple, idx, PyLong_FromLong(value));
-    }
-
-    inline void IBuildTupleArg(PyObject* tuple, size_t idx, int16_t value)
-    {
-        PyTuple_SET_ITEM(tuple, idx, PyLong_FromLong(value));
-    }
-
-    inline void IBuildTupleArg(PyObject* tuple, size_t idx, int32_t value)
-    {
-        PyTuple_SET_ITEM(tuple, idx, PyLong_FromLong(value));
-    }
-
-    inline void IBuildTupleArg(PyObject* tuple, size_t idx, PyObject* value)
-    {
-        PyTuple_SET_ITEM(tuple, idx, value);
-    }
-
-    inline void IBuildTupleArg(PyObject* tuple, size_t idx, pyObjectRef& value)
-    {
-        PyTuple_SET_ITEM(tuple, idx, value.Release());
-    }
-
-    inline void IBuildTupleArg(PyObject* tuple, size_t idx, const ST::string& value)
-    {
-        PyTuple_SET_ITEM(tuple, idx, PyUnicode_FromSTString(value));
-    }
-
-    inline void IBuildTupleArg(PyObject* tuple, size_t idx, uint8_t value)
-    {
-        PyTuple_SET_ITEM(tuple, idx, PyLong_FromSize_t(value));
-    }
-
-    inline void IBuildTupleArg(PyObject* tuple, size_t idx, uint16_t value)
-    {
-        PyTuple_SET_ITEM(tuple, idx, PyLong_FromSize_t(value));
-    }
-
-    inline void IBuildTupleArg(PyObject* tuple, size_t idx, uint32_t value)
-    {
-        PyTuple_SET_ITEM(tuple, idx, PyLong_FromSize_t(value));
-    }
-
-    inline void IBuildTupleArg(PyObject* tuple, size_t idx, wchar_t value)
-    {
-        PyTuple_SET_ITEM(tuple, idx, PyUnicode_FromFormat("%c", (int)value));
-    }
-
-    template<size_t Size, typename Arg>
-    inline void BuildTupleArgs(PyObject* tuple, Arg&& arg)
-    {
-        IBuildTupleArg(tuple, (Size - 1), std::forward<Arg>(arg));
-    }
-
-    template<size_t Size, typename Arg0, typename... Args>
-    inline void BuildTupleArgs(PyObject* tuple, Arg0&& arg0, Args&&... args)
-    {
-        IBuildTupleArg(tuple, (Size - (sizeof...(args) + 1)), std::forward<Arg0>(arg0));
-        BuildTupleArgs<Size>(tuple, std::forward<Args>(args)...);
+        // The point of all this is to use Python's new "vectorcall" calling convention.
+        // PSF claims that is is faster -- the most evident improvement is that we don't
+        // have to allocate a transitional tuple object to pass the arguments.
+        if constexpr (sizeof...(args) == 1) {
+            // Use Python's built-in vectorcall optimization for one argument.
+            pyObjectRef arg = ConvertFrom(std::forward<Args>(args)...);
+            plProfile_BeginTiming(PythonUpdate);
+            pyObjectRef result = _PyObject_CallOneArg(callable, arg.Get());
+            plProfile_EndTiming(PythonUpdate);
+            return result;
+        } else if constexpr (sizeof...(args) == 0) {
+            plProfile_BeginTiming(PythonUpdate);
+#if PY_VERSION_HEX >= 0x03090000
+            // Use Python's built-in vectorcall optimization for no argument.
+            pyObjectRef result = _PyObject_CallNoArg(callable);
+#else
+            // This is basically the same idea.
+            pyObjectRef result = _PyObject_Vectorcall(
+                callable,
+                nullptr,
+                0,
+                nullptr
+            );
+#endif
+            plProfile_EndTiming(PythonUpdate);
+            return result;
+        } else if constexpr (sizeof...(args) < 64) {
+            constexpr size_t nargs = sizeof...(args) + 1;
+            PyObject* argsObjs[nargs];
+            return _detail::VectorcallObject<nargs>(callable, argsObjs, std::forward<Args>(args)...);
+        } else {
+            // Yikes, so many arguments we need to make an alloation.
+            constexpr size_t nargs = sizeof...(args) + 1;
+            auto argsObjs = std::make_unique<PyObject* []>(nargs);
+            return _detail::VectorcallObject<nargs>(callable, argsObjs.get(), std::forward<Args>(args)...);
+        }
     }
 
     template<typename... _CBArgsT>
     [[nodiscard]]
-    inline std::function<void(_CBArgsT...)> BuildCallback(ST::string parentCall, PyObject* callable)
+    inline std::function<void(_CBArgsT...)> BuildAsyncCallback(hsRef<pyAsyncTask> future)
     {
-        hsAssert(PyCallable_Check(callable) != 0, "BuildCallback() expects a Python callable.");
+        return[future = std::move(future)](_CBArgsT&&... args) -> void {
+            if constexpr (sizeof...(args) == 0) {
+                // No arguments, so just use `None`.
+                Py_INCREF(Py_None);
+                future->SetResult(Py_None);
+            } else if constexpr (sizeof...(args) == 1) {
+                // Pass through a single argument.
+                future->SetResult(ConvertFrom(std::forward<_CBArgsT>(args)...));
+            } else {
+                // Forward multiple arguments as a Python tuple.
+                future->SetResult(ConvertFrom(ToTuple, std::forward<_CBArgsT>(args)...));
+            }
+        };
+    }
+
+    template<typename... _CBArgsT>
+    inline pyObjectRef BuildAsyncTask(const char* parentCall, std::function<void(_CBArgsT...)>& cb)
+    {
+        hsRef<pyAsyncTask> future = hsWeakRef(new pyAsyncTask()); // initial ref, held by the callback
+        PyObject* result = pyAsyncTask::New(future.Get()); // makes its own reference
+        cb = BuildAsyncCallback<_CBArgsT...>(std::move(future));
+        return result;
+    }
+
+    template<size_t _AlternativeN, typename... _VariantArgsT>
+    inline pyObjectRef BuildAsyncTask(const char* parentCall, std::variant<_VariantArgsT...>& cb)
+    {
+        std::variant_alternative_t<_AlternativeN, std::decay_t<decltype(cb)>> cbFunc;
+        pyObjectRef task = BuildAsyncTask(parentCall, cbFunc);
+        cb = std::move(cbFunc);
+        return task;
+    }
+
+    template<typename... _CBArgsT>
+    [[nodiscard]]
+    inline std::function<void(_CBArgsT...)> BuildPythonCallback(const char* parentCall, PyObject* callable)
+    {
+        hsAssert(PyCallable_Check(callable) != 0, "BuildPythonCallback() expects a Python callable.");
 
         pyObjectRef cb(callable, pyObjectNewRef);
-        return [cb = std::move(cb), parentCall = std::move(parentCall)](_CBArgsT&&... args) -> void {
-            pyObjectRef tuple = PyTuple_New(sizeof...(args));
-            BuildTupleArgs<sizeof...(args)>(tuple.Get(), std::forward<_CBArgsT>(args)...);
-
-            plProfile_BeginTiming(PythonUpdate);
-            pyObjectRef result = PyObject_CallObject(cb.Get(), tuple.Get());
-            plProfile_EndTiming(PythonUpdate);
-
+        return[cb = std::move(cb), parentCall](_CBArgsT&&... args) -> void {
+            pyObjectRef result = CallObject(cb, std::forward<_CBArgsT>(args)...);
             if (!result) {
                 // Stash the error state so we can get some info about the
                 // callback before printing the exception itself.
@@ -174,8 +196,8 @@ namespace plPythonCallable
                 PyErr_Fetch(&ptype, &pvalue, &ptraceback);
                 pyObjectRef repr = PyObject_Repr(cb.Get());
                 PythonInterface::WriteToLog(ST::format("Error executing '{}' callback for '{}'",
-                                                       PyUnicode_AsSTString(repr.Get()),
-                                                       parentCall));
+                    PyUnicode_AsSTString(repr.Get()),
+                    parentCall));
                 PyErr_Restore(ptype, pvalue, ptraceback);
                 PyErr_Print();
             }
@@ -183,28 +205,40 @@ namespace plPythonCallable
     }
 
     template<typename... _CBArgsT>
-    inline void BuildCallback(ST::string parentCall, PyObject* callable,
-                              std::function<void(_CBArgsT...)>& cb)
+    inline void BuildPythonCallback(const char* parentCall, PyObject* callable,
+        std::function<void(_CBArgsT...)>& cb)
     {
-        cb = BuildCallback<_CBArgsT...>(std::move(parentCall), callable);
+        cb = BuildPythonCallback<_CBArgsT...>(parentCall, callable);
     }
 
     template<size_t _AlternativeN, typename... _VariantArgsT>
-    inline void BuildCallback(ST::string parentCall, PyObject* callable,
-                              std::variant<_VariantArgsT...>& cb)
+    inline void BuildPythonCallback(const char* parentCall, PyObject* callable,
+        std::variant<_VariantArgsT...>& cb)
     {
         std::variant_alternative_t<_AlternativeN, std::decay_t<decltype(cb)>> cbFunc;
-        BuildCallback(std::move(parentCall), callable, cbFunc);
+        BuildPythonCallback(parentCall, callable, cbFunc);
         cb = std::move(cbFunc);
     }
 
-    template<typename... Args>
-    inline pyObjectRef CallObject(const pyObjectRef& callable, Args&&... args)
+    template<hsSsize_t _AlternativeN, typename... _VariantArgsT>
+    inline pyObjectRef BuildVariantCallback(const char* parentCall, PyObject* arg, std::variant<_VariantArgsT...>& cb)
     {
-        hsAssert(PyCallable_Check(callable.Get()), "Trying to call a non-callable, eh?");
-        pyObjectRef tup = PyTuple_New(sizeof...(args));
-        BuildTupleArgs<sizeof...(args)>(tup.Get(), std::forward<Args>(args)...);
-        return PyObject_CallObject(callable.Get(), tup.Get());
+        constexpr bool hasKey = (std::is_same_v<plKey, _VariantArgsT> || ...);
+        if constexpr (_AlternativeN != -1) {
+            if (arg != nullptr && PyCallable_Check(arg)) {
+                BuildPythonCallback<_AlternativeN>(parentCall, arg, cb);
+                return { Py_None, pyObjectNewRef };
+            } else if (arg == nullptr || arg == Py_None) {
+                return BuildAsyncTask<_AlternativeN>(parentCall, cb);
+            }
+        }
+        if constexpr (hasKey) {
+            if (pyKey::Check(arg)) {
+                cb = pyKey::ConvertFrom(arg)->getKey();
+                return { Py_None, pyObjectNewRef };
+            }
+        }
+        return {};
     }
 };
 

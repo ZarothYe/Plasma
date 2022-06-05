@@ -52,18 +52,19 @@ You can contact Cyan Worlds, Inc. by email legal@cyan.com
 #include "pyKey.h"
 #include "pyPlayer.h"
 #include "plPythonCallable.h"
+#include "plPythonConvert.h"
 
 #include "plMessage/plConfirmationMsg.h"
 #include "plNetCommon/plNetCommon.h"
 #include "plResMgr/plLocalization.h"
 #include "plMessage/plLOSRequestMsg.h"
 
-namespace plPythonCallable
+namespace plPython
 {
     template<>
-    inline void IBuildTupleArg(PyObject* tuple, size_t idx, plConfirmationMsg::Result value)
+    inline PyObject* ConvertFrom(plConfirmationMsg::Result&& value)
     {
-        PyTuple_SET_ITEM(tuple, idx, PyLong_FromSsize_t((Py_ssize_t)value));
+        return PyLong_FromSsize_t((Py_ssize_t)value);
     }
 };
 
@@ -75,7 +76,7 @@ PYTHON_GLOBAL_METHOD_DEFINITION_WKEY(PtYesNoDialog, args, kwargs,
 {
     const char* keywords[]{ "", "", "dialogType", nullptr };
     constexpr std::string_view kErrorMsg = "PtYesNoDialog expects a ptKey or callable, "
-                                           "a string or localization path, and an optional int.";
+                                           "a string, and an optional int.";
     PyObject* cbObj;
     ST::string text;
     plConfirmationMsg::Type dialogType = plConfirmationMsg::Type::YesNo;
@@ -90,11 +91,8 @@ PYTHON_GLOBAL_METHOD_DEFINITION_WKEY(PtYesNoDialog, args, kwargs,
     }
 
     plConfirmationMsg::Callback cb;
-    if (pyKey::Check(cbObj)) {
-        cb = pyKey::ConvertFrom(cbObj)->getKey();
-    } else if (PyCallable_Check(cbObj)) {
-        plPythonCallable::BuildCallback<1>("PtYesNoDialog", cbObj, cb);
-    } else if (cbObj != Py_None) {
+    pyObjectRef result = plPython::BuildVariantCallback<1>("PtYesNoDialog", cbObj, cb);
+    if (!result) {
         PyErr_SetString(PyExc_TypeError, kErrorMsg.data());
         PYTHON_RETURN_ERROR;
     }
@@ -103,7 +101,7 @@ PYTHON_GLOBAL_METHOD_DEFINITION_WKEY(PtYesNoDialog, args, kwargs,
     auto msg = new plConfirmationMsg(std::move(text), dialogType, std::move(cb));
     msg->Send();
 
-    PYTHON_RETURN_NONE;
+    return result.Release();
 }
 
 PYTHON_GLOBAL_METHOD_DEFINITION_WKEY(PtLocalizedYesNoDialog, args, kwargs,
@@ -126,11 +124,8 @@ PYTHON_GLOBAL_METHOD_DEFINITION_WKEY(PtLocalizedYesNoDialog, args, kwargs,
 
     PyObject* cbObj = PyTuple_GET_ITEM(args, 0);
     plConfirmationMsg::Callback cb;
-    if (pyKey::Check(cbObj)) {
-        cb = pyKey::ConvertFrom(cbObj)->getKey();
-    } else if (PyCallable_Check(cbObj)) {
-        plPythonCallable::BuildCallback<1>("PtLocalizedYesNoDialog", cbObj, cb);
-    } else if (cbObj != Py_None) {
+    pyObjectRef result = plPython::BuildVariantCallback<1>("PtLocalizedYesNoDialog", cbObj, cb);
+    if (!result) {
         PyErr_SetString(PyExc_TypeError, kErrorMsg.data());
         PYTHON_RETURN_ERROR;
     }
@@ -187,7 +182,7 @@ PYTHON_GLOBAL_METHOD_DEFINITION_WKEY(PtLocalizedYesNoDialog, args, kwargs,
     auto msg = new plLocalizedConfirmationMsg(std::move(path), std::move(locArgs), dialogType, std::move(cb));
     msg->Send();
 
-    PYTHON_RETURN_NONE;
+    return result.Release();
 }
 
 PYTHON_GLOBAL_METHOD_DEFINITION(PtRateIt, args, "Params: chronicleName,dialogPrompt,onceFlag\nShows a dialog with dialogPrompt and stores user input rating into chronicleName")

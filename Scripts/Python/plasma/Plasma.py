@@ -43,7 +43,10 @@ You can contact Cyan Worlds, Inc. by email legal@cyan.com
 
 from __future__ import annotations
 from PlasmaConstants import *
-from typing import Callable, Optional, Tuple, Union
+from typing import *
+
+# For use in Plasma type annotations for return values
+_R = TypeVar("_R")
 
 def PtAcceptInviteInGame(friendName,inviteKey):
     """Sends a VaultTask to the server to perform the invite"""
@@ -636,7 +639,15 @@ def PtLocalAvatarRunKeyDown():
     """Returns true if the run key is being held down for the local avatar"""
     pass
 
-def PtLocalizedYesNoDialog(cb: Union[None, Callable, ptKey], path: str, *args, dialogType: int = PtConfirmationType.YesNo) -> None:
+@overload
+def PtLocalizedYesNoDialog(cb: Union[Callable[[PtConfirmationResult], None], ptKey], path: str, *args, dialogType: int = PtConfirmationType.YesNo) -> None:
+    """This will display a confirmation dialog to the user with the localized text `path`
+       with any optional localization `args` applied. This dialog _has_ to be answered by the user,
+       and their answer will be returned in a Notify message or callback given by `cb`."""
+    ...
+
+@overload
+def PtLocalizedYesNoDialog(cb: Literal[None], path: str, *args, dialogType: int = PtConfirmationType.YesNo) -> ptAsyncTask[PtConfirmationResult]:
     """This will display a confirmation dialog to the user with the localized text `path`
        with any optional localization `args` applied. This dialog _has_ to be answered by the user,
        and their answer will be returned in a Notify message or callback given by `cb`."""
@@ -825,6 +836,14 @@ def PtShowDialog(dialogName):
     """Show a GUI dialog by name (does not load dialog)"""
     pass
 
+@overload
+def PtSleep(time: SupportsFloat, /, block: Literal[False] = False) -> ptAsyncTask[None]:
+    ...
+
+@overload
+def PtSleep(time: SupportsFloat, /, block: Literal[True] = False) -> None:
+    ...
+
 def PtStartScreenCapture(selfKey,width=800,height=600):
     """Starts a capture of the screen"""
     pass
@@ -863,6 +882,16 @@ def PtValidateKey(key):
 otherwise returns false(0)"""
     pass
 
+@overload
+def PtWaitFor(aws: Iterable[Awaitable[R]], /, timeout: Optional[SupportsFloat] = None, block: Literal[False] = False) -> Tuple[Sequence[Awaitable[R]], Sequence[Awaitable[R]]]:
+    """Wait on the awaitables in the iterable aws to complete."""
+    ...
+
+@overload
+def PtWaitFor(aws: Iterable[Awaitable[R]], /, timeout: Optional[SupportsFloat] = None, block: Literal[True] = False) -> Tuple[Sequence[Awaitable[R]], Sequence[Awaitable[R]]]:
+    """Wait on the awaitables in the iterable aws to complete."""
+    ...
+
 def PtWasLocallyNotified(selfKey):
     """Returns 1 if the last notify was local or 0 if the notify originated on the network"""
     pass
@@ -883,7 +912,15 @@ def PtWhatGUIControlType(guiKey):
     """Returns the control type of the key passed in"""
     pass
 
-def PtYesNoDialog(cb: Union[None, ptKey, Callable], message: str, /, dialogType: int = PtConfirmationType.YesNo) -> None:
+@overload
+def PtYesNoDialog(cb: Union[Callable[[PtConfirmationResult], None], ptKey], message: str, /, dialogType: int = PtConfirmationType.YesNo) -> None:
+    """This will display a confirmation dialog to the user with the text `message`. This dialog
+       _has_ to be answered by the user, and their answer will be returned in a Notify message
+       or callback given by `cb`."""
+    ...
+
+@overload
+def PtYesNoDialog(cb: Literal[None], message: str, /, dialogType: int = PtConfirmationType.YesNo) -> ptAsyncTask[PtConfirmationResult]:
     """This will display a confirmation dialog to the user with the text `message`. This dialog
        _has_ to be answered by the user, and their answer will be returned in a Notify message
        or callback given by `cb`."""
@@ -1269,6 +1306,27 @@ Such as a game master, only running on the client that owns a particular object"
     def stop(self):
         """Stops the animation"""
         pass
+
+class ptAsyncTask(Awaitable[_R]):
+    """An asynchronously completed task"""
+    def __init__(self, aw: Optional[Awaitable[_R]] = None):
+        ...
+
+    def getResult(self, *, block: bool = False) -> _R:
+        """Returns the result of this task. Raises `RuntimeError` if the task is not complete when non-blocking."""
+        ...
+
+    def hasException(self) -> bool:
+        """Gets if the task has an exception set."""
+        ...
+
+    def isDone(self) -> bool:
+        """Gets if the task is done (has a valid result or exception set)."""
+        ...
+
+    def setResult(self, result: _R) -> None:
+        """Sets the result of this task. NOTE: This will override and discard any result the engine would otherwise report."""
+        ...
 
 class ptAudioControl:
     """Accessor class to the Audio controls"""
