@@ -46,9 +46,9 @@ from PlasmaTypes import *
 
 import random
 
-class xSimpleImagerClueHandler():
+class xSimpleImagerClueHandler:
 
-    def __init__(self, baseImager, imagerMaxSize, clueImager, clueTime, randomMaxTimeOffset):
+    def __init__(self, baseImager: ptSceneobject, imagerMaxSize: int, clueImager: ptSceneobject, clueTime: int, randomMaxTimeOffset: int):
         PtDebugPrint(f"xSimpleImagerClueHandler: init for imager with max size {imagerMaxSize}, clue time of {clueTime} seconds, and {randomMaxTimeOffset} possible offset", level=kWarningLevel)
 
         random.seed()
@@ -61,8 +61,8 @@ class xSimpleImagerClueHandler():
         self.randomMaxTimeOffset = randomMaxTimeOffset
 
         # initialize hidden
-        self.clueImager.sceneobject.draw.disable()
-        self.clueImager.sceneobject.physics.suppress(True)
+        self.clueImager.draw.disable()
+        self.clueImager.physics.suppress(True)
 
         self.SetClueAlarm()
 
@@ -75,13 +75,13 @@ class xSimpleImagerClueHandler():
 
         if self.isShowing or forceOff:
             # only the owner of the imager changes the images
-            if self.baseImager.sceneobject.isLocallyOwned():
+            if self.baseImager.isLocallyOwned():
                 # if clue currently being shown, turn it off and flip the regularly scheduled imager back on
-                PtDebugPrint(f"xSimpleImagerClueHandler.UpdateClueState: Turning the clue off now...", level=kWarningLevel)
-                self.clueImager.sceneobject.draw.disable()
-                self.clueImager.sceneobject.physics.suppress(True)
-                self.baseImager.sceneobject.draw.enable()
-                self.baseImager.sceneobject.physics.suppress(False)
+                PtDebugPrint("xSimpleImagerClueHandler.UpdateClueState: Turning the clue off now...", level=kWarningLevel)
+                self.clueImager.draw.disable()
+                self.clueImager.physics.suppress(True)
+                self.baseImager.draw.enable()
+                self.baseImager.physics.suppress(False)
 
             # set alarm to show the clue again if it was on before we turned it off (versus forcing while already off)
             # otherwise multiple alarms will be active at the same time
@@ -92,18 +92,18 @@ class xSimpleImagerClueHandler():
             self.isShowing = False
         elif self.shouldShow:
             # only the owner of the imager changes the images
-            if self.baseImager.sceneobject.isLocallyOwned():
+            if self.baseImager.isLocallyOwned():
                 # it is time for the clue imager to shine!
-                PtDebugPrint(f"xSimpleImagerClueHandler.UpdateClueState: Turn the clue on now!", level=kWarningLevel)
-                self.clueImager.sceneobject.draw.enable()
-                self.clueImager.sceneobject.physics.suppress(False)
-                self.baseImager.sceneobject.draw.disable()
-                self.baseImager.sceneobject.physics.suppress(True)
+                PtDebugPrint("xSimpleImagerClueHandler.UpdateClueState: Turn the clue on now!", level=kWarningLevel)
+                self.clueImager.draw.enable()
+                self.clueImager.physics.suppress(False)
+                self.baseImager.draw.disable()
+                self.baseImager.physics.suppress(True)
 
             self.isShowing = True
             self.shouldShow = False
 
     def onAlarm(self, context):
 
-        PtDebugPrint(f"xSimpleImagerClueHandler.onAlarm: Clue set to show on next flip", level=kWarningLevel)
+        PtDebugPrint("xSimpleImagerClueHandler.onAlarm: Clue set to show on next flip", level=kWarningLevel)
         self.shouldShow = True

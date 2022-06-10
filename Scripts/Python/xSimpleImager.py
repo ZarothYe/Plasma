@@ -185,7 +185,7 @@ class xSimpleImager(ptModifier):
             PtDebugPrint("xSimpleImager: There was no imager name!",level=kErrorLevel)
 
         if ImagerClueObject.sceneobject is not None:
-            self.clueHandler = xSimpleImagerClueHandler(ImagerObject, ImagerMax.value, ImagerClueObject, ImagerClueTime.value, ImagerRandomTime.value)
+            self.clueHandler = xSimpleImagerClueHandler(ImagerObject.sceneobject, ImagerMax.value, ImagerClueObject.sceneobject, ImagerClueTime.value, ImagerRandomTime.value)
 
     def OnServerInitComplete(self):
         if AgeStartedIn == PtGetAgeName():
