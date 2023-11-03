@@ -53,9 +53,11 @@ You can contact Cyan Worlds, Inc. by email legal@cyan.com
 #include "plFileSystem.h"
 
 #include <map>
+#include <optional>
 #include <vector>
 
 #include "pfLocalizedString.h"
+#include "plResMgr/plLocalization.h"
 
 
 class plStatusLog;
@@ -134,7 +136,7 @@ public:
 
     void SetupData();
 
-    pfLocalizedString GetElement(const ST::string & name) const;
+    pfLocalizedString GetElement(const ST::string & name, std::optional<plLocalization::Language> lang) const;
     pfLocalizedString GetSpecificElement(const ST::string & name, const ST::string & languageName) const;
 
     std::vector<ST::string> GetAgeList() const

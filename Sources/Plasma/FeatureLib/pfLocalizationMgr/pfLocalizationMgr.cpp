@@ -51,6 +51,7 @@ You can contact Cyan Worlds, Inc. by email legal@cyan.com
 #include "pfLocalizedString.h"
 #include "pfLocalizationDataMgr.h"
 #include "pfLocalizationMgr.h"
+#include "plResMgr/plLocalization.h"
 
 //////////////////////////////////////////////////////////////////////
 //// pfLocalizationMgr Functions /////////////////////////////////////
@@ -95,13 +96,13 @@ void pfLocalizationMgr::Shutdown()
 
 //// GetString ///////////////////////////////////////////////////////
 
-ST::string pfLocalizationMgr::GetString(const ST::string & path, const std::vector<ST::string> & args) const
+ST::string pfLocalizationMgr::GetString(const ST::string & path, const std::vector<ST::string> & args, std::optional<plLocalization::Language> language) const
 {
-    return pfLocalizationDataMgr::Instance().GetElement(path) % args;
+    return pfLocalizationDataMgr::Instance().GetElement(path, language) % args;
 }
 
-ST::string pfLocalizationMgr::GetString(const ST::string & path) const
+ST::string pfLocalizationMgr::GetString(const ST::string & path, std::optional<plLocalization::Language> language) const
 {
     std::vector<ST::string> args; // blank args so that % signs are still handled correctly
-    return pfLocalizationDataMgr::Instance().GetElement(path) % args;
+    return pfLocalizationDataMgr::Instance().GetElement(path, language) % args;
 }

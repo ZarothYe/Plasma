@@ -957,19 +957,26 @@ void pfLocalizationDataMgr::SetupData()
 
 //// GetElement //////////////////////////////////////////////////////
 
-pfLocalizedString pfLocalizationDataMgr::GetElement(const ST::string & name) const
+pfLocalizedString pfLocalizationDataMgr::GetElement(const ST::string & name, std::optional<plLocalization::Language> language) const
 {
     if (!fLocalizedElements.exists(name)) // does the requested element exist?
         return {}; // nope, so return failure
 
-    auto currLangIt = fLocalizedElements[name].find(IGetCurrentLanguageName());
-    if (currLangIt != fLocalizedElements[name].cend())
-        return currLangIt->second;
+    if (language.has_value() && language.value() != plLocalization::GetLanguage()) {
+        // specifically requested this element from a different language set than the current
+        auto currLangIt = fLocalizedElements[name].find(plLocalization::GetLanguageName(language.value()));
+        if (currLangIt != fLocalizedElements[name].cend())
+            return currLangIt->second;
+    } else {
+        auto currLangIt = fLocalizedElements[name].find(IGetCurrentLanguageName());
+        if (currLangIt != fLocalizedElements[name].cend())
+            return currLangIt->second;
 
-    // Force to English
-    auto englishIt = fLocalizedElements[name].find("English");
-    if (englishIt != fLocalizedElements[name].cend())
-        return englishIt->second;
+        // Force to English
+        auto englishIt = fLocalizedElements[name].find("English");
+        if (englishIt != fLocalizedElements[name].cend())
+            return englishIt->second;
+    }
 
     return {};
 }

@@ -2529,10 +2529,10 @@ void cyMisc::ForceCursorShown()
 //              properly replaced (the list is a list of strings).
 //              Name is in "Age.Set.Name" format
 //
-ST::string cyMisc::GetLocalizedString(const ST::string& name, const std::vector<ST::string> & arguments)
+ST::string cyMisc::GetLocalizedString(const ST::string& name, const std::vector<ST::string> & arguments, std::optional<plLocalization::Language> language)
 {
     if (pfLocalizationMgr::InstanceValid())
-        return pfLocalizationMgr::Instance().GetString(name, arguments);
+        return pfLocalizationMgr::Instance().GetString(name, arguments, std::move(language));
     return "";
 }
 

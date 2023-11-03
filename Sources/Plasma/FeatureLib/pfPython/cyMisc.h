@@ -57,6 +57,10 @@ class pyPoint3;
 
 #include "HeadSpin.h"
 
+#include <optional>
+
+#include "plResMgr/plLocalization.h"
+
 class pyGUIDialog;
 class plPipeline;
 class plDisplayMode;
@@ -894,7 +898,7 @@ public:
     //              properly replaced (the list is a list of strings).
     //              Name is in "Age.Set.Name" format
     //
-    static ST::string GetLocalizedString(const ST::string& name, const std::vector<ST::string> & arguments);
+    static ST::string GetLocalizedString(const ST::string& name, const std::vector<ST::string> & arguments, std::optional<plLocalization::Language> lang);
 
     static void EnablePlanarReflections(bool enable = true);
     static void SetGraphicsOptions(int Width, int Height, int ColorDepth, bool Windowed, int NumAASamples, int MaxAnisotropicSamples, bool VSync);

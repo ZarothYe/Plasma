@@ -44,6 +44,8 @@ You can contact Cyan Worlds, Inc. by email legal@cyan.com
 
 #include <Python.h>
 #include <string_theory/string>
+
+#include <optional>
 #include <utility>
 #include <vector>
 
@@ -51,6 +53,7 @@ You can contact Cyan Worlds, Inc. by email legal@cyan.com
 #include "pyKey.h"
 #include "pyPlayer.h"
 #include "plPythonConvert.h"
+#include "plResMgr/plLocalization.h"
 
 
 PYTHON_BASIC_GLOBAL_METHOD_DEFINITION(PtFlashWindow, cyMisc::FlashWindow, "Flashes the client window if it is not focused");
@@ -366,14 +369,36 @@ PYTHON_BASIC_GLOBAL_METHOD_DEFINITION(PtForceCursorHidden, cyMisc::ForceCursorHi
 PYTHON_BASIC_GLOBAL_METHOD_DEFINITION(PtForceCursorShown, cyMisc::ForceCursorShown, "Forces the cursor to show, overriding everything.\n"
             "Only call if other methods won't work. This is the only way to show the cursor after a call to PtForceMouseHidden()")
 
-PYTHON_GLOBAL_METHOD_DEFINITION(PtGetLocalizedString, args, "Params: name, arguments=None\nReturns the localized string specified by name "
-            "(format is Age.Set.Name) and substitutes the arguments in the list of strings passed in as arguments.")
+static int ConvertToLanguage(PyObject* obj, void* language)
 {
+    auto* result = (std::optional<plLocalization::Language>*)language;
+
+    if (PyLong_Check(obj)) {
+        *result = static_cast<plLocalization::Language>(PyLong_AsSize_t(obj));
+        return 0;
+    } else if (PyNumber_Check(obj)) {
+        pyObjectRef somePyNum = PyNumber_Long(obj);
+        *result = static_cast<plLocalization::Language>(PyLong_AsSize_t(somePyNum.Get()));
+        return 0;
+    }
+
+    return -1;
+}
+
+PYTHON_GLOBAL_METHOD_DEFINITION_WKEY(PtGetLocalizedString, args, kwargs,
+    "Params: name, arguments=None, language=None\nReturns the localized string specified by name "
+    "(format is Age.Set.Name) and substitutes the arguments in the list of strings passed in as arguments.")
+{
+    const char* keywords[]{ "", "", "language", nullptr };
+    constexpr std::string_view kErrorMsg = "PtGetLocalizedString expects a string, a list of strings, and a language enum";
+    
     ST::string name;
     PyObject* argObj = nullptr;
-    if (!PyArg_ParseTuple(args, "O&|O", PyUnicode_STStringConverter, &name, &argObj))
-    {
-        PyErr_SetString(PyExc_TypeError, "PtGetLocalizedString expects a string and a list of strings");
+    std::optional<plLocalization::Language> langEnum;
+
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O&|OO&", const_cast<char**>(keywords),
+                                     PyUnicode_STStringConverter, &name, &argObj, ConvertToLanguage, &langEnum)) {
+        PyErr_SetString(PyExc_TypeError, kErrorMsg.data());
         PYTHON_RETURN_ERROR;
     }
     std::vector<ST::string> argList;
@@ -381,7 +406,7 @@ PYTHON_GLOBAL_METHOD_DEFINITION(PtGetLocalizedString, args, "Params: name, argum
     // convert name from a string
     if (name.empty())
     {
-        PyErr_SetString(PyExc_TypeError, "PtGetLocalizedString expects a string and a list of strings");
+        PyErr_SetString(PyExc_TypeError, kErrorMsg.data());
         PYTHON_RETURN_ERROR;
     }
 
@@ -390,7 +415,7 @@ PYTHON_GLOBAL_METHOD_DEFINITION(PtGetLocalizedString, args, "Params: name, argum
         // convert args from a list of strings
         if (!PyList_Check(argObj))
         {
-            PyErr_SetString(PyExc_TypeError, "PtGetLocalizedString expects a string and a list of strings");
+            PyErr_SetString(PyExc_TypeError, kErrorMsg.data());
             PYTHON_RETURN_ERROR;
         }
 
@@ -408,7 +433,7 @@ PYTHON_GLOBAL_METHOD_DEFINITION(PtGetLocalizedString, args, "Params: name, argum
         }
     }
 
-    return PyUnicode_FromSTString(cyMisc::GetLocalizedString(name, argList));
+    return PyUnicode_FromSTString(cyMisc::GetLocalizedString(name, argList, std::move(langEnum)));
 }
 
 PYTHON_GLOBAL_METHOD_DEFINITION(PtDumpLogs, args, "Params: folder\nDumps all current log files to the specified folder (a sub-folder to the log folder)")
